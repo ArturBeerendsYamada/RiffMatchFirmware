@@ -3,7 +3,7 @@
 
 // How many internal neopixels do we have? some boards have more than one!
 #define NUMPIXELS   25
-#define LEDPIN   39
+#define LEDPIN   13
 Adafruit_NeoPixel pixels(NUMPIXELS, LEDPIN, NEO_GRB + NEO_KHZ800);
 
 // the setup routine runs once when you press reset:
