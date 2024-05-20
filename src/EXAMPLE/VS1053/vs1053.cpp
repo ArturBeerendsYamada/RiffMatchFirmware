@@ -45,11 +45,16 @@
 */
 
 // This ESP_VS1053_Library
-#include <VS1053.h>
+// #include <VS1053.h>
+#define DEBUG_MIDI
 
-// Please find SampleMp3.h file here:
-//   github.com/baldram/ESP_VS1053_Library/blob/master/examples/Mp3PlayerDemo/SampleMp3.h
+// This ESP_VS1053_Library
+#include <VS1053Driver.h>
 #include "SampleMp3.h"
+#include "patches_midi/rtmidi1003b.h"
+#include "patches_midi/rtmidi1053b.h"
+
+#define UNDEFINED    -1
 
 // Wiring of VS1053 board (SPI connected in a standard way)
 #ifdef ARDUINO_ARCH_ESP8266
@@ -66,7 +71,24 @@
 
 #define VOLUME  50 // volume level 0-100
 
+#ifndef DEBUG_MIDI
 VS1053 player(VS1053_CS, VS1053_DCS, VS1053_DREQ);
+#else
+VS1053 player(VS1053_CS, VS1053_DCS, VS1053_DREQ, UNDEFINED, SPI);
+#endif
+
+// noteOn and noteOff based on MP3_Shield_RealtimeMIDI demo 
+// by Matthias Neeracher, Nathan Seidle's Sparkfun Electronics example respectively
+
+//Send a MIDI note-on message.  Like pressing a piano key
+void noteOn(uint8_t channel, uint8_t note, uint8_t attack_velocity) {
+  player.sendMidiMessage( (0x90 | channel), note, attack_velocity);
+}
+
+//Send a MIDI note-off message.  Like releasing a piano key
+void noteOff(uint8_t channel, uint8_t note, uint8_t release_velocity) {
+  player.sendMidiMessage( (0x80 | channel), note, release_velocity);
+}
 
 void setup() {
     Serial.begin(115200);
@@ -75,17 +97,95 @@ void setup() {
     SPI.begin();
 
     Serial.println("Hello VS1053!\n");
+#ifndef DEBUG_MIDI
     // initialize a player
     player.begin();
     player.loadDefaultVs1053Patches();
     player.switchToMp3Mode(); // optional, some boards require this
     player.setVolume(VOLUME);
+#else
+    player.beginMidi();  
+    player.setVolume(VOLUME);  
+#endif
 }
 
 void loop() {
+#ifdef DEBUG_MIDI
+  uint8_t channel          = (uint8_t) random(16);
+ //channel                  = 9; //uncomment this, if you just want to hear percussion
+ uint8_t instrument       = (uint8_t) random(128);
+ uint8_t note             = (uint8_t) random(128);
+ uint8_t attack_velocity  = (uint8_t) random(128);
+ uint8_t release_velocity = (uint8_t) random(128);
+ unsigned long duration   = (unsigned long) (300 + random(2000));
+ 
+
+/**  MIDI messages, 0x80 to 0xEF Channel Messages,  0xF0 to 0xFF System Messages
+ *   a MIDI message ranges from 1 byte to three bytes
+ *   the first byte consists of 4 command bits and 4 channel bits, i.e. 16 channels
+ *   
+ *   0x80     Note Off
+ *   0x90     Note On
+ *   0xA0     Aftertouch
+ *   0xB0     Continuous controller
+ *   0xC0     Patch change
+ *   0xD0     Channel Pressure
+ *   0xE0     Pitch bend
+ *   0xF0     (non-musical commands)
+ */
+
+/** 0xB0 Continuous controller commands, 0-127
+ *  0 Bank Select (MSB)
+ *  1 Modulation Wheel
+ *  2 Breath controller
+ *  3 Undefined
+ *  4 Foot Pedal (MSB)
+ *  5 Portamento Time (MSB)
+ *  6 Data Entry (MSB)
+ *  7 Volume (MSB)
+ *  8 Balance (MSB)
+ *  9 Undefined
+ *  10 Pan position (MSB)
+ *  11 Expression (MSB)
+ *  ...
+ */
+
+  // Continuous controller, set channel volume to high, i.e. 127
+  player.sendMidiMessage(0xB0| channel, 0x07, 127); 
+
+ // Continuous controller 0, bank select: 0 gives you the default bank depending on the channel
+ // 0x78 (percussion) for Channel 10, i.e. channel = 9 , 0x79 (melodic)  for other channels
+  player.sendMidiMessage(0xB0| channel, 0, 0x00); //0x00 default bank 
+
+  // Patch change, select instrument
+  player.sendMidiMessage(0xC0| channel, instrument, 0);
+
+// Serial output for the actual parameters
+ Serial.print("Channel: ");
+ Serial.println(channel, DEC);
+ Serial.print("Instrument: ");
+ Serial.println(instrument, DEC);
+ Serial.print("Note: ");
+ Serial.println(note, DEC); 
+ Serial.print("Attack: ");
+ Serial.println(attack_velocity, DEC);  
+ Serial.print("Release: ");
+ Serial.println(release_velocity, DEC);   
+ Serial.print("Duration: ");
+ Serial.print(duration, DEC);   
+ Serial.println(" milliseconds: ");  
+ Serial.println("--------------------------------------");   
+
+  //playing one (pseudo-)random note
+  noteOn(channel, note, attack_velocity);
+  delay(duration);
+  noteOff(channel, note, release_velocity);
+  delay(100);
+#else
     Serial.println("Playing sound... ");
 
     // play mp3 flow each 3s
     player.playChunk(sampleMp3, sizeof(sampleMp3));
     delay(3000);
+#endif
 }
