@@ -18,19 +18,19 @@ const uint8_t keys[ROWS][COLS] = {
     {32, 33, 34, 35, 36}};
 
 
-const byte rowPins[ROWS] = {15, 2, 4, 16, 17}; //connect to the row pinouts of the keypad
-const byte colPins[COLS] = {32, 33, 25, 26, 27}; //connect to the column pinouts of the keypad
+const byte rowPins[ROWS] = {17, 16, 4, 2, 15}; //connect to the row pinouts of the keypad
+const byte colPins[COLS] = {27, 26, 25, 33, 32}; //connect to the column pinouts of the keypad
 
   // Create the Keypad
 Keypad_Matrix kpd = Keypad_Matrix( makeKeymap (keys), rowPins, colPins, ROWS, COLS );
 
-void keyDown (const char which)
+void keyDown (const uint8_t which)
 {
   Serial.print (F("Key down: "));
   Serial.println (which);
 }
 
-void keyUp (const char which)
+void keyUp (const uint8_t which)
 {
   Serial.print (F("Key up: "));
   Serial.println (which);
@@ -41,13 +41,13 @@ void setup()
 {
   Serial.begin (115200);
   Serial.println ("Starting.");
-  kpd.begin ();
-  kpd.setKeyDownHandler (keyDown);
-  kpd.setKeyUpHandler   (keyUp);
+  kpd.begin();
+  kpd.setKeyDownHandler(keyDown);
+  kpd.setKeyUpHandler(keyUp);
 }
 
 void loop() 
 {
-  kpd.scan ();
+  kpd.scan();
 }
 

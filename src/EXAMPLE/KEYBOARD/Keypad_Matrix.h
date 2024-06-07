@@ -29,7 +29,7 @@
 
 */
 
-typedef void (*keyHandler) (const char which);
+typedef void (*keyHandler) (const uint8_t which);
 typedef int  (*colHandler) (uint8_t);
 typedef void (*rowHandler) (uint8_t);
 

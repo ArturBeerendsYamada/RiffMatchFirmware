@@ -69,7 +69,7 @@
 #define VS1053_DREQ   4
 #endif
 
-#define VOLUME  50 // volume level 0-100
+#define VOLUME  100 // volume level 0-100
 
 #ifndef DEBUG_MIDI
 VS1053 player(VS1053_CS, VS1053_DCS, VS1053_DREQ);
