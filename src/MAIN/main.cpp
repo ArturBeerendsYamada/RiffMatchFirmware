@@ -45,11 +45,16 @@
 */
 
 // This ESP_VS1053_Library
-#include <VS1053.h>
+// #include <VS1053.h>
 
-// Please find SampleMp3.h file here:
-//   github.com/baldram/ESP_VS1053_Library/blob/master/examples/Mp3PlayerDemo/SampleMp3.h
-#include "SampleMp3.h"
+// This ESP_VS1053_Library
+#include <VS1053Driver.h>
+#include "patches_midi/rtmidi1003b.h"
+#include "patches_midi/rtmidi1053b.h"
+#include "pinConfig.h"
+#include <Adafruit_NeoPixel.h>
+
+#define UNDEFINED    -1
 
 // Wiring of VS1053 board (SPI connected in a standard way)
 #ifdef ARDUINO_ARCH_ESP8266
@@ -60,32 +65,196 @@
 
 #ifdef ARDUINO_ARCH_ESP32
 #define VS1053_CS     5
-#define VS1053_DCS    16
-#define VS1053_DREQ   4
+#define VS1053_DCS    12
+#define VS1053_DREQ   14
 #endif
 
-#define VOLUME  50 // volume level 0-100
+uint8_t channel = 0;
+uint8_t instrument = 2;
 
-VS1053 player(VS1053_CS, VS1053_DCS, VS1053_DREQ);
+VS1053 player(VS1053_CS, VS1053_DCS, VS1053_DREQ, UNDEFINED, SPI);
+Keypad_Matrix kpd = Keypad_Matrix( makeKeymap (keys), rowPins, colPins, ROWS, COLS );
+Adafruit_NeoPixel pixels(NUMPIXELS, LEDPIN, NEO_GRB + NEO_KHZ800);
+
+int last_mode = LIVRE;
+int octave_read = 0;
+int octave = 4;
+unsigned long previousMillis = 0;
+const unsigned long interval = 200; 
+const int threshold = 10;
+int modeReading = 0;
+int mode = LIVRE;
+
+// noteOn and noteOff based on MP3_Shield_RealtimeMIDI demo 
+// by Matthias Neeracher, Nathan Seidle's Sparkfun Electronics example respectively
+
+//Send a MIDI note-on message.  Like pressing a piano key
+void noteOn(uint8_t channel, uint8_t note, uint8_t attack_velocity) {
+  player.sendMidiMessage( (0x90 | channel), note, attack_velocity);
+}
+
+//Send a MIDI note-off message.  Like releasing a piano key
+void noteOff(uint8_t channel, uint8_t note, uint8_t release_velocity) {
+  player.sendMidiMessage( (0x80 | channel), note, release_velocity);
+}
+
+void keyDownLivre (const uint8_t which)
+{
+  Serial.print (F("Key down: "));
+  Serial.println (which);
+  noteOn(channel, (which + 12 * octave), 45);
+  pixels.setPixelColor((uint16_t)(which - 12), pixels.Color(0, 150, 0));
+  pixels.show();
+  Serial.println ((uint16_t)(which - 12));
+}
+
+void keyUpLivre (const uint8_t which)
+{
+  Serial.print (F("Key up: "));
+  Serial.println (which);
+  noteOff(channel, (which + 12 * octave), 45);
+  pixels.setPixelColor((uint16_t)(which - 12), pixels.Color(0, 0, 0));
+  pixels.show();
+  Serial.println ((uint16_t)(which - 12));
+}
+
+void keyDownTreino (const uint8_t which)
+{
+  Serial.print (F("Key down: "));
+  Serial.println (which);
+  Serial.println("Waiting Features...");
+}
+
+void keyUpTreino (const uint8_t which)
+{
+  Serial.print (F("Key up: "));
+  Serial.println (which);
+  Serial.println("Waiting Features...");
+}
+
+void octaveReading() {
+  static int last_reading = 0; // Para armazenar a última leitura válida
+  unsigned long currentMillis = millis(); // Obtém o tempo atual em milissegundos
+
+  if (currentMillis - previousMillis >= interval) {
+    previousMillis = currentMillis; // Atualiza o tempo anterior
+
+    int current_reading = analogRead(OCT_PIN); // Lê o valor analógico do pino
+    // Se a diferença entre a leitura atual e a última leitura válida for menor que o threshold, consideramos a leitura estável
+    if (abs(current_reading - last_reading) > threshold) {
+      octave_read = current_reading;
+      // Serial.println(octave_read);
+      if (octave_read < 10) {
+        if (octave == 6)
+          octave = 6;
+        else
+          octave++; // Incrementa a variável octave
+        Serial.print("Increment: ");
+        Serial.println(octave); // Imprime o valor lido
+      } else if (octave_read < 3000) {
+        if (octave == 0)
+          octave = 0;
+        else 
+          octave--; // Decrementa a variável octave
+        Serial.print("Decrement: ");
+        Serial.println(octave); // Imprime o valor lido
+      }
+
+      last_reading = octave_read; // Atualiza a última leitura válida
+    }
+  }
+}
+
+void modeFunction()
+{
+  modeReading = analogRead(MODE_PIN);
+  if (modeReading > 4000)
+    mode = LIVRE;
+  else if (modeReading < 4000 && modeReading > 1000)
+    mode = APRENDIZADO;
+  else
+    mode = TREINO;
+  // Serial.println(mode);
+  if (last_mode != mode)
+  {
+    if (mode == TREINO)
+    {
+      kpd.setKeyDownHandler(keyDownTreino);
+      kpd.setKeyUpHandler(keyUpTreino);
+    }
+    else
+    {
+      kpd.setKeyDownHandler(keyDownLivre);
+      kpd.setKeyUpHandler(keyUpLivre);
+    }
+  }
+  last_mode = mode;
+}
 
 void setup() {
     Serial.begin(115200);
-
+    pixels.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)
+    pixels.setBrightness(50); // not so bright
     // initialize SPI
     SPI.begin();
-
     Serial.println("Hello VS1053!\n");
-    // initialize a player
-    player.begin();
-    player.loadDefaultVs1053Patches();
-    player.switchToMp3Mode(); // optional, some boards require this
-    player.setVolume(VOLUME);
+    player.beginMidi();  
+    player.setVolume(100);  
+
+    /**  MIDI messages, 0x80 to 0xEF Channel Messages,  0xF0 to 0xFF System Messages
+ *   a MIDI message ranges from 1 byte to three bytes
+ *   the first byte consists of 4 command bits and 4 channel bits, i.e. 16 channels
+ *   
+ *   0x80     Note Off
+ *   0x90     Note On
+ *   0xA0     Aftertouch
+ *   0xB0     Continuous controller
+ *   0xC0     Patch change
+ *   0xD0     Channel Pressure
+ *   0xE0     Pitch bend
+ *   0xF0     (non-musical commands)
+ */
+
+/** 0xB0 Continuous controller commands, 0-127
+ *  0 Bank Select (MSB)
+ *  1 Modulation Wheel
+ *  2 Breath controller
+ *  3 Undefined
+ *  4 Foot Pedal (MSB)
+ *  5 Portamento Time (MSB)
+ *  6 Data Entry (MSB)
+ *  7 Volume (MSB)
+ *  8 Balance (MSB)
+ *  9 Undefined
+ *  10 Pan position (MSB)
+ *  11 Expression (MSB)
+ *  ...
+ */
+
+ // Continuous controller 0, bank select: 0 gives you the default bank depending on the channel
+ // 0x78 (percussion) for Channel 10, i.e. channel = 9 , 0x79 (melodic)  for other channels
+  player.sendMidiMessage(0xB0| channel, 0, 0x00); //0x00 default bank 
+
+  // Patch change, select instrument
+  player.sendMidiMessage(0xC0| channel, instrument, 0);
+
+  kpd.begin();
+  kpd.setKeyDownHandler(keyDownLivre);
+  kpd.setKeyUpHandler(keyUpLivre);
+  pixels.setPixelColor(0, pixels.Color(0, 150, 0));
+  pixels.show();
+  delay(500);
+  // turn off
+  pixels.fill(0x000000);
+  pixels.show();
+  delay(500); // wait half a second
 }
 
-void loop() {
-    Serial.println("Playing sound... ");
-
-    // play mp3 flow each 3s
-    player.playChunk(sampleMp3, sizeof(sampleMp3));
-    delay(3000);
+void loop()
+ { 
+  modeFunction();
+  kpd.scan();
+  octaveReading();
+  volumeLevel = analogRead(POT_PIN) / 32;
+  player.sendMidiMessage(0xB0| channel, 0x07, volumeLevel); 
 }

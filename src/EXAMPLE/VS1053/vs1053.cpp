@@ -65,8 +65,8 @@
 
 #ifdef ARDUINO_ARCH_ESP32
 #define VS1053_CS     5
-#define VS1053_DCS    16
-#define VS1053_DREQ   4
+#define VS1053_DCS    12
+#define VS1053_DREQ   14
 #endif
 
 #define VOLUME  100 // volume level 0-100
