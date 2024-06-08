@@ -84,6 +84,14 @@ const unsigned long interval = 200;
 const int threshold = 10;
 int modeReading = 0;
 int mode = LIVRE;
+// Variables will change:
+int lastSteadyState = LOW;       // the previous steady state from the input pin
+int lastFlickerableState = LOW;  // the previous flickerable state from the input pin
+int currentState;                // the current reading from the input pin
+int startStopState = STOP;
+// the following variables are unsigned longs because the time, measured in
+// milliseconds, will quickly become a bigger number than can be stored in an int.
+unsigned long lastDebounceTime = 0;  // the last time the output pin was toggled
 
 // noteOn and noteOff based on MP3_Shield_RealtimeMIDI demo 
 // by Matthias Neeracher, Nathan Seidle's Sparkfun Electronics example respectively
@@ -165,6 +173,46 @@ void octaveReading() {
   }
 }
 
+void checkStartStopButton()
+{
+  // read the state of the switch/button:
+  currentState = digitalRead(SP_PIN);
+
+  // check to see if you just pressed the button
+  // (i.e. the input went from LOW to HIGH), and you've waited long enough
+  // since the last press to ignore any noise:
+
+  // If the switch/button changed, due to noise or pressing:
+  if (currentState != lastFlickerableState) {
+    // reset the debouncing timer
+    lastDebounceTime = millis();
+    // save the the last flickerable state
+    lastFlickerableState = currentState;
+  }
+
+  if ((millis() - lastDebounceTime) > DEBOUNCE_TIME) 
+  {
+    // whatever the reading is at, it's been there for longer than the debounce
+    // delay, so take it as the actual current state:
+
+    // if the button state has changed:
+    if (lastSteadyState == HIGH && currentState == LOW)
+    {
+      if(startStopState)
+      {
+        Serial.println("Stopped");
+        startStopState = 0;
+      } else if (!startStopState) 
+      {
+        Serial.println("Started");
+        startStopState = 1;
+      }
+    }
+    // save the the last steady state
+    lastSteadyState = currentState;
+  }
+}
+
 void modeFunction()
 {
   modeReading = analogRead(MODE_PIN);
@@ -193,6 +241,7 @@ void modeFunction()
 
 void setup() {
     Serial.begin(115200);
+    pinMode(SP_PIN, INPUT);
     pixels.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)
     pixels.setBrightness(50); // not so bright
     // initialize SPI
@@ -253,6 +302,18 @@ void setup() {
 void loop()
  { 
   modeFunction();
+  switch(mode)
+  {
+    case LIVRE:
+      
+    break;
+    case APRENDIZADO:
+      Serial.println("Futuro");
+    break;
+    case TREINO:
+      checkStartStopButton();
+    break;
+  }
   kpd.scan();
   octaveReading();
   volumeLevel = analogRead(POT_PIN) / 32;
