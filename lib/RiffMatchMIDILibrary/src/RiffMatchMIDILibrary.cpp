@@ -1,15 +1,19 @@
 #include "RiffMatchMIDILibrary.h"
 
+#include <stdio.h>
+#include <stdint.h>
+#include <math.h>
+#include <vector>
 
 // Function to print a character as hex
-void print_hex(unsigned char ch) {
+void print_hex(uint8_t ch) {
     printf("%02X ", ch);        // Print the byte as a hexadecimal value
 }
 
 //Function to fill and return a struct with header information from MIDI file.
 //If no header flag ("MThd") is found, return all fields as -1.
 //Also fills timeInformation with default values
-struct MIDIHeader getMIDIHeader(uint8_t* fileData, int fileSize, struct timeInformation* timeInfo) {
+struct MIDIHeader getMIDIHeader(std::vector<uint8_t> fileData, int fileSize, struct timeInformation* timeInfo) {
     struct MIDIHeader header;
     //If file size is smaller than a MIDI header, returns "error"
     if (fileSize < 14) {
@@ -17,6 +21,7 @@ struct MIDIHeader getMIDIHeader(uint8_t* fileData, int fileSize, struct timeInfo
         header.format = -1;
         header.ntrack = -1;
         header.tickdiv = -1;
+        header.firstTrackIndex = -1;
         return header;
     }
 
@@ -45,25 +50,52 @@ struct MIDIHeader getMIDIHeader(uint8_t* fileData, int fileSize, struct timeInfo
         header.format = formato;
         header.ntrack = ntracks;
         header.tickdiv = tickdiv;
+        header.firstTrackIndex = ++i;
     }
     else {
         header.lenght = -1;
         header.format = -1;
         header.ntrack = -1;
         header.tickdiv = -1;
+        header.firstTrackIndex = -1;
     }
 
     timeInfo->tempoMIDI = DEFAULT_TEMPO;
     timeInfo->timeSigDen = DEFAULT_TIMESIG_DEN;
     timeInfo->bpm = calculateBPM(DEFAULT_TEMPO, DEFAULT_TIMESIG_DEN);
     timeInfo->usPerTick = calculateUsPerTick(DEFAULT_TEMPO, header.tickdiv);
+    timeInfo->msPerTick = (timeInfo->usPerTick) / 1000;
     #if DEBUG
-        printf("----------File Header----------\nheader lenght: %d\nMIDI format: %d\nnumber of tracks: %d\ntickdiv: %d\n--------------------\n",
-        header.lenght, header.format, header.ntrack, header.tickdiv);
-        printf("----------Time Info----------\ntempoMIDI: %d\ntimeSigDen: %d\nbpm: %.2f\nusPerTick: %.2f\n--------------------\n",
-        timeInfo->tempoMIDI, timeInfo->timeSigDen, timeInfo->bpm, timeInfo->usPerTick);
+        printf("----------File Header----------\nheader lenght: %d\nMIDI format: %d\nnumber of tracks: %d\ntickdiv: %d\nTrackIndex: %d\n--------------------\n",
+        header.lenght, header.format, header.ntrack, header.tickdiv, header.firstTrackIndex);
+        printf("----------Time Info----------\ntempoMIDI: %d\ntimeSigDen: %d\nbpm: %.2f\nusPerTick: %.2f\nmsPerTick: %.2f\n--------------------\n",
+        timeInfo->tempoMIDI, timeInfo->timeSigDen, timeInfo->bpm, timeInfo->usPerTick, timeInfo->msPerTick);
     #endif
     return header;
+}
+
+//Function to check the presence of a Track (flegged by "Mtrk" in the file) and return its length
+//Returns -2 if not found or -1 if length left in the file is less than the Track Header
+int getMtrkHeader(std::vector<uint8_t> fileData, int fileSize, int index) {
+    int i=index;
+    if (fileSize - index < MIDI_HEADER_LEN) {
+        return -1;
+    }
+    if (fileData[i] == 0x4D &&     //ascii hex 'M'
+        fileData[++i] == 0x54 &&   //ascii hex 'T'
+        fileData[++i] == 0x72 &&   //ascii hex 'r'
+        fileData[++i] == 0x6B      //ascii hex 'k'
+    ) {
+        //if found header flag ("MThd")
+        //adds the next 4 bytes (big-endian) to get the chunck lenght
+        int chunklen =  (fileData[++i] << 8*3) +
+                        (fileData[++i] << 8*2) +
+                        (fileData[++i] << 8) +
+                        fileData[++i];
+        return chunklen;
+    }
+    else 
+        return -2;
 }
 
 //Function to calculate BPM from tempo (us per quarter note) and time signature denomiator (which note represents a beat*)
@@ -87,9 +119,10 @@ void updateTempo(int tempo, struct timeInformation* timeInfo) {
     timeInfo->tempoMIDI = tempo;
     timeInfo->bpm = calculateBPM(timeInfo->tempoMIDI, timeInfo->timeSigDen);
     timeInfo->usPerTick = calculateUsPerTick(timeInfo->tempoMIDI, timeInfo->tickdiv);
+    timeInfo->msPerTick = (timeInfo->usPerTick) / 1000;
     #if DEBUG
-        printf("----------Update Tempo----------\ntempoMIDI: %d\ntimeSigDen: %d\nbpm: %.2f\nusPerTick: %.2f\n--------------------\n",
-        timeInfo->tempoMIDI, timeInfo->timeSigDen, timeInfo->bpm, timeInfo->usPerTick);
+        printf("----------Update Tempo----------\ntempoMIDI: %d\ntimeSigDen: %d\nbpm: %.2f\nusPerTick: %.2f\nmsPerTick: %.2f\n--------------------\n",
+        timeInfo->tempoMIDI, timeInfo->timeSigDen, timeInfo->bpm, timeInfo->usPerTick, timeInfo->msPerTick);
     #endif
 }
 
@@ -99,13 +132,13 @@ void updateTimeSig(int timeSigNum, int timeSigDen, struct timeInformation* timeI
     timeInfo->timeSigDen = timeSigDen;
     timeInfo->bpm = calculateBPM(timeInfo->tempoMIDI, timeInfo->timeSigDen);
     #if DEBUG
-        printf("----------Update Time Signature----------\ntempoMIDI: %d\ntimeSigDen: %d\nbpm: %.2f\nusPerTick: %.2f\n--------------------\n",
-        timeInfo->tempoMIDI, timeInfo->timeSigDen, timeInfo->bpm, timeInfo->usPerTick);
+        printf("----------Update Time Signature----------\ntempoMIDI: %d\ntimeSigDen: %d\nbpm: %.2f\nusPerTick: %.2f\nmsPerTick: %.2f\n--------------------\n",
+        timeInfo->tempoMIDI, timeInfo->timeSigDen, timeInfo->bpm, timeInfo->usPerTick, timeInfo->msPerTick);
     #endif
 }
 
 // Function to read a Variable Lenght Quantity from a byte stream and convert it to an integer
-uint32_t readVLQ(uint8_t* stream, int* index) {
+uint32_t readVLQ(std::vector<uint8_t> stream, int* index) {
     int value = 0;
     int shift = 0;
     uint8_t byte;
@@ -122,14 +155,24 @@ uint32_t readVLQ(uint8_t* stream, int* index) {
 
 //function to read an event starting on given index of byte array "fileData". Size of the array should not be exceeded.
 //Assumes that the given index is pointing to the beginning if a delta time.
-//returns the first index after the end of the event
-int readEvent(uint8_t* fileData, int index, int fileSize, struct timeInformation* timeInfo) {
+//Returns the first index after the end of the event
+//Returns the beginning of first track if the file already ended
+int readEvent(std::vector<uint8_t> fileData, int index, int fileSize, struct timeInformation* timeInfo, MIDIHeader header, MidiEvent* event) {
+    if(index >= fileSize)
+    {
+        #if DEBUG
+            printf("File already ended. Looping back to beginning of First Track\n");
+        #endif
+        return header.firstTrackIndex+MIDI_HEADER_LEN;
+    }
     int deltaTime = readVLQ(fileData, &index);
     float deltaTimeuSec = deltaTime*timeInfo->usPerTick;
+    float deltaTimemSec = deltaTime*timeInfo->msPerTick;
+    event->deltaTime = (int)deltaTimemSec;
 
     #if DEBUG
-        printf("----------Event----------\nDeltaTime[0x]: %X\nDeltaTime[0d]: %d\nDeltaTime[us]: %.2f\n",
-        deltaTime, deltaTime, deltaTimeuSec);
+        printf("----------Event----------\nDeltaTime[0x]: %X\nDeltaTime[0d]: %d\nDeltaTime[us]: %.2f\nDeltaTime[ms]: %.2f\n",
+        deltaTime, deltaTime, deltaTimeuSec, deltaTimemSec);
     #endif
 
     //SysEx events are unsupported, so just get the lenght and jump the index
@@ -150,20 +193,6 @@ int readEvent(uint8_t* fileData, int index, int fileSize, struct timeInformation
     //If it is neither a SysEx or a Meta Event, it should be a MIDI event
     else {
         switch (fileData[index] & 0xF0) {
-            case NOTE_ON_EVENT:
-            if(index < fileSize - NOTE_ON_EVENT_LEN) {
-                    noteOnEvent(fileData[index+1], fileData[index+2]);
-                    index+=3; //3 bytes are "consumed" in this opereation (including the kind of event)
-                }
-            break;
-
-            case NOTE_OFF_EVENT:
-                if(index < fileSize - NOTE_OFF_EVENT_LEN) {
-                    noteOffEvent(fileData[index+1], fileData[index+2]);
-                    index+=3; //3 bytes are "consumed" in this opereation (including the kind of event)
-                }
-            break;
-
             case META_EVENT:
                 //index out of bounds should be checked inside metaEvent function due to variable lenght
                 //index should be updated inside metaEvent function due to variable lenght
@@ -172,12 +201,17 @@ int readEvent(uint8_t* fileData, int index, int fileSize, struct timeInformation
             break;
 
             //following three unsuported events have the same amount of bytes (3)
+            case NOTE_ON_EVENT:
+            case NOTE_OFF_EVENT:
             case POLYPHONIC_PRESSURE_EVENT:
             case CONTROLLER_EVENT:
             case PITCH_BEND_EVENT:
                 #if DEBUG
                     printf("MIDI Event unsuported\n");
                 #endif
+                event->status = fileData[index];
+                event->data1 = fileData[index+1];
+                event->data2 = fileData[index+2];
                 index+=CONTROLLER_EVENT_LEN;
             break;
 
@@ -187,24 +221,28 @@ int readEvent(uint8_t* fileData, int index, int fileSize, struct timeInformation
                 #if DEBUG
                     printf("MIDI Event unsuported\n");
                 #endif
+                event->status = fileData[index];
+                event->data1 = fileData[index+1];
+                event->data2 = 0;
                 index+=PROGRAM_CHANGE_EVENT_LEN;
             break;
 
             //SysEx events are unsupported, so just get the lenght and jump the index
             case SYSEX_EVENT:
-                #if DEBUG
+                {
+                    #if DEBUG
                     printf("SysEx Event unsuported\n");
-                #endif
-                index++;
-                int length = readVLQ(fileData, &index); 
-                index+=length;
+                    #endif
+                    index++;
+                    int length = readVLQ(fileData, &index); 
+                    index+=length;
+                }
             break;
 
             default:
                 #if DEBUG
                     printf("MIDI event unknown (%X)\n", fileData[index] & 0xF0);
                 #endif
-            break;
         }
     }
     
@@ -230,7 +268,7 @@ void noteOffEvent(uint8_t note, uint8_t velocity) {
 
 //Function to work on Meta Event
 //Assumes that the given index is pointing to the type of Meta event, followed by beginning of a VLQ length.
-void metaEvent(uint8_t* fileData, int* index, int fileSize, struct timeInformation* timeInfo) {
+void metaEvent(std::vector<uint8_t> fileData, int* index, int fileSize, struct timeInformation* timeInfo) {
     uint8_t metaEventType = fileData[(*index)++];
     int length = readVLQ(fileData, index);
     switch (metaEventType) {

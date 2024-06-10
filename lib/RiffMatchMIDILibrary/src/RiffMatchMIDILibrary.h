@@ -1,6 +1,3 @@
-#ifndef RIFFMATCHMIDILIB
-#define RIFFMATCHMIDILIB
-
 //MIDI file references:
 //http://www.somascape.org/midi/tech/mfile.html
 //http://www.music.mcgill.ca/~ich/classes/mumt306/StandardMIDIfileformat.html#BMA1_2
@@ -9,11 +6,13 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <math.h>
+#include <vector>
 
 #define DEBUG 1
 
 #define DEFAULT_TEMPO 500000
 #define DEFAULT_TIMESIG_DEN 1
+#define MIDI_HEADER_LEN 8
 
 //all events here are considered to be going to channel 0, pay attention during implementation
 #define NOTE_OFF_EVENT 0x80
@@ -58,6 +57,7 @@ struct MIDIHeader {
     int format;
     int ntrack;
     int tickdiv;
+    int firstTrackIndex;
 };
 
 struct timeInformation {
@@ -66,13 +66,15 @@ struct timeInformation {
     int timeSigDen; //denominator of time signature
     int tempoMIDI;  //us per quarter note
     float bpm;      //bpm = 1000000.0/tempo * TimeSigDen/4.0 * 60
-    float usPerTick;//micro-seconds per tick(from tickdiv) usPerTick = tempo/tickdiv
+    float usPerTick;//microseconds per tick(from tickdiv) usPerTick = tempo/tickdiv
+    float msPerTick;//miliseconds per tick(from tickdiv) msPerTick = usPerTick/1000
 };
 
-struct Event {
+struct MidiEvent {
     int deltaTime;
-    unsigned char status;
-    int note;
+    uint8_t status;
+    uint8_t data1;
+    uint8_t data2;
 };
 
 //Function to print a character as hex
@@ -81,7 +83,11 @@ void print_hex(uint8_t ch);
 //Function to fill and return a struct with header information from MIDI file.
 //If no header flag ("MThd") is found, return all fields as -1.
 //Also fills timeInformation with default values
-struct MIDIHeader getMIDIHeader(uint8_t* fileData, int fileSize, struct timeInformation* timeInfo);
+struct MIDIHeader getMIDIHeader(std::vector<uint8_t> fileData, int fileSize, struct timeInformation* timeInfo);
+
+//Function to check the presence of a Track Header int the given index (flegged by "Mtrk" in the file) and return its length
+//Returns -1 if not found
+int getMtrkHeader(std::vector<uint8_t> fileData, int fileSize, int index);
 
 //Function to calculate BPM from tempo (us per quarter note) and time signature denomiator (which note represents a beat*)
 //* X/4 is 1 beat per quarter note, X/2 is 1 beat ber half-note
@@ -97,12 +103,13 @@ void updateTempo(int tempo, struct timeInformation* timeInfo);
 void updateTimeSig(int timeSigNum, int timeSigDen, struct timeInformation* timeInfo);
 
 //Function to read a Variable Lenght Quantity (VLQ) from a byte stream and convert it to an integer
-uint32_t readVLQ(uint8_t* stream, int* index);
+uint32_t readVLQ(std::vector<uint8_t> stream, int* index);
 
 //function to read an event starting on given index of byte array "fileData". Size of the array should not be exceeded.
 //Assumes that the given index is pointing to the beginning of a VLQ delta time.
-//returns the first index after the end of the event
-int readEvent(uint8_t* fileData, int index, int fileSize, struct timeInformation* timeInfo);
+//Returns the first index after the end of the event
+//Returns -1 if the file already ended
+int readEvent(std::vector<uint8_t> fileData, int index, int fileSize, struct timeInformation* timeInfo, MIDIHeader header, MidiEvent* event);
 
 //Function to work on Note Off Event
 void noteOnEvent(uint8_t note, uint8_t velocity);
@@ -112,6 +119,4 @@ void noteOffEvent(uint8_t note, uint8_t velocity);
 
 //Function to work on Meta Event
 //Assumes that the given index is pointing to the type of Meta event, followed by beginning of a VLQ length.
-void metaEvent(uint8_t* fileData, int* index, int fileSize, struct timeInformation* timeInfo);
-
-#endif // RIFFMATCHMIDILIB
+void metaEvent(std::vector<uint8_t> fileData, int* index, int fileSize, struct timeInformation* timeInfo);

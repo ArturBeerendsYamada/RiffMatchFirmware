@@ -52,7 +52,10 @@
 #include "patches_midi/rtmidi1003b.h"
 #include "patches_midi/rtmidi1053b.h"
 #include "pinConfig.h"
+#include "BluetoothSerial.h"
+#include <RiffMatchMIDILibrary.h>
 #include <Adafruit_NeoPixel.h>
+#include <vector>
 
 #define UNDEFINED    -1
 
@@ -69,18 +72,22 @@
 #define VS1053_DREQ   14
 #endif
 
+#define LED_NOTE_ON_TIME 500 //in ms
+#define NUM_NOTES 96
+
 uint8_t channel = 0;
 uint8_t instrument = 2;
 
 VS1053 player(VS1053_CS, VS1053_DCS, VS1053_DREQ, UNDEFINED, SPI);
 Keypad_Matrix kpd = Keypad_Matrix( makeKeymap (keys), rowPins, colPins, ROWS, COLS );
-Adafruit_NeoPixel pixels(NUMPIXELS, LEDPIN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel pixels(NUMPIXELS, LEDPIN, NEO_GRB + NEO_KHZ800); 
+int notesStatus[NUM_NOTES] = {};
 
 int last_mode = LIVRE;
 int octave_read = 0;
 int octave = 4;
 unsigned long previousMillis = 0;
-const unsigned long interval = 200; 
+const unsigned long interval = 200;
 const int threshold = 10;
 int modeReading = 0;
 int mode = LIVRE;
@@ -92,6 +99,17 @@ int startStopState = STOP;
 // the following variables are unsigned longs because the time, measured in
 // milliseconds, will quickly become a bigger number than can be stored in an int.
 unsigned long lastDebounceTime = 0;  // the last time the output pin was toggled
+
+String device_name = "ESP32-BT-Riffmatch";
+BluetoothSerial SerialBT;
+std::vector<uint8_t> MIDIfileData;
+int MIDIfileLen = 0;
+int currentMIDIfileIndex = 0;
+struct MIDIHeader MIDIfileMIDIHeader;
+struct timeInformation MIDIfileTimeInformation;
+int fileOk = 0;
+long unsigned int timestampLastEventms = 0;
+MidiEvent currentMIDIEvent;
 
 // noteOn and noteOff based on MP3_Shield_RealtimeMIDI demo 
 // by Matthias Neeracher, Nathan Seidle's Sparkfun Electronics example respectively
@@ -217,21 +235,35 @@ void modeFunction()
 {
   modeReading = analogRead(MODE_PIN);
   if (modeReading > 4000)
+  {
     mode = LIVRE;
+    //Serial.println("Modo Livre");
+  }
   else if (modeReading < 4000 && modeReading > 1000)
+  {
     mode = APRENDIZADO;
+    //Serial.println("Modo Aprendizado");
+  }
   else
+  {
     mode = TREINO;
+    //Serial.println("Modo Treino");
+  }
   // Serial.println(mode);
   if (last_mode != mode)
   {
     if (mode == TREINO)
     {
+      Serial.println("Modo Treino");
       kpd.setKeyDownHandler(keyDownTreino);
       kpd.setKeyUpHandler(keyUpTreino);
     }
     else
     {
+      if (mode == LIVRE)
+        Serial.println("Modo Livre");
+      else
+        Serial.println("Modo Aprendizado");
       kpd.setKeyDownHandler(keyDownLivre);
       kpd.setKeyUpHandler(keyUpLivre);
     }
@@ -239,11 +271,71 @@ void modeFunction()
   last_mode = mode;
 }
 
+void carregarArquivo()
+{
+  pixels.fill(0x0000FF);
+  pixels.show();
+  while (SerialBT.available())
+  {
+    MIDIfileData.push_back(SerialBT.read());
+  }
+  MIDIfileLen = MIDIfileData.size();
+  // for(int i=0; i<MIDIfileLen; i++){
+  //   print_hex(MIDIfileData[i]);
+  // }
+  // printf("\n");
+  MIDIfileMIDIHeader = getMIDIHeader(MIDIfileData, MIDIfileLen, &MIDIfileTimeInformation);
+  printf("MTrkChunkLen: %d\n", getMtrkHeader(MIDIfileData, MIDIfileLen, MIDIfileMIDIHeader.firstTrackIndex));
+  currentMIDIfileIndex = MIDIfileMIDIHeader.firstTrackIndex + MIDI_HEADER_LEN;
+
+  fileOk = 1;
+  pixels.fill(0x000000);
+  pixels.show();
+}
+
+void MIDIEventTreatment()
+{
+  player.sendMidiMessage(currentMIDIEvent.status, currentMIDIEvent.data1, currentMIDIEvent.data2);
+  if((uint8_t)(currentMIDIEvent.status & (uint8_t)(0xF0)) == NOTE_ON_EVENT && currentMIDIEvent.data2 >= 5)
+  {
+    notesStatus[currentMIDIEvent.data1-12] = millis();
+  }
+}
+
+void updateLEDsFromMIDIFile()
+{
+  int currentTime = millis();
+  pixels.fill(0x00000000);
+  for (int i=0;i<NUM_NOTES;i++)
+  {
+    if(currentTime - notesStatus[i] <= LED_NOTE_ON_TIME)
+    {
+      if((i-(octave)*12)>24)
+      {
+        //acende canto direito por estar em oitava muita pra baixo
+        pixels.setPixelColor((uint16_t)(24), pixels.Color(255, 255, 0));
+      }
+      else if ((i-(octave)*12)<0)
+      {
+        //acende canto esquerdo por estar em oitava muito pra cima
+        pixels.setPixelColor((uint16_t)(0), pixels.Color(255, 255, 0));
+      }
+      else
+      {
+        //acende
+        pixels.setPixelColor((uint16_t)(i-(octave)*12), pixels.Color(255, 0, 255));
+      }
+    }
+  }
+  pixels.show();
+}
+
 void setup() {
     Serial.begin(115200);
+    SerialBT.begin(device_name); //Bluetooth device name
     pinMode(SP_PIN, INPUT);
     pixels.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)
-    pixels.setBrightness(50); // not so bright
+    pixels.setBrightness(10); // not so bright
     // initialize SPI
     SPI.begin();
     Serial.println("Hello VS1053!\n");
@@ -290,17 +382,16 @@ void setup() {
   kpd.begin();
   kpd.setKeyDownHandler(keyDownLivre);
   kpd.setKeyUpHandler(keyUpLivre);
-  pixels.setPixelColor(0, pixels.Color(0, 150, 0));
+  pixels.fill(0x00FF00);
   pixels.show();
   delay(500);
   // turn off
   pixels.fill(0x000000);
   pixels.show();
-  delay(500); // wait half a second
 }
 
 void loop()
- { 
+{
   modeFunction();
   switch(mode)
   {
@@ -308,7 +399,24 @@ void loop()
       
     break;
     case APRENDIZADO:
-      Serial.println("Futuro");
+      checkStartStopButton();
+      if (SerialBT.available())
+      {
+        carregarArquivo();
+      }
+      if(fileOk && startStopState == START)
+      {
+        updateLEDsFromMIDIFile();
+        long unsigned int currentTime =  millis();
+        if(currentTime-timestampLastEventms > currentMIDIEvent.deltaTime){
+          timestampLastEventms = currentTime;
+          if(currentMIDIEvent.status <= 0xE0)
+            MIDIEventTreatment();
+          currentMIDIfileIndex = readEvent(MIDIfileData, currentMIDIfileIndex, MIDIfileLen, &MIDIfileTimeInformation, MIDIfileMIDIHeader, &currentMIDIEvent);
+          Serial.print("New Index: ");
+          Serial.println(currentMIDIfileIndex);
+        }
+      }
     break;
     case TREINO:
       checkStartStopButton();
