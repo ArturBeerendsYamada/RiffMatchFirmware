@@ -75,13 +75,21 @@
 #define LED_NOTE_ON_TIME 500 //in ms
 #define NUM_NOTES 96
 
+#define PRESS_TIME_TOLERANCE 100
+
 uint8_t channel = 0;
 uint8_t instrument = 2;
 
 VS1053 player(VS1053_CS, VS1053_DCS, VS1053_DREQ, UNDEFINED, SPI);
 Keypad_Matrix kpd = Keypad_Matrix( makeKeymap (keys), rowPins, colPins, ROWS, COLS );
-Adafruit_NeoPixel pixels(NUMPIXELS, LEDPIN, NEO_GRB + NEO_KHZ800); 
-int notesStatus[NUM_NOTES] = {};
+Adafruit_NeoPixel pixels(NUM_PIXELS, LEDPIN, NEO_GRB + NEO_KHZ800); 
+
+// All notes vectors needed for all modes
+int notesStartTime[NUM_NOTES] = {};
+int notesOnFile[NUM_NOTES] = {};
+int notesOffFile[NUM_NOTES] = {};
+int notesPressed[NUM_NOTES] = {};
+int notesReleased[NUM_NOTES] = {};
 
 int last_mode = LIVRE;
 int octave_read = 0;
@@ -149,6 +157,7 @@ void keyDownTreino (const uint8_t which)
   Serial.print (F("Key down: "));
   Serial.println (which);
   Serial.println("Waiting Features...");
+  notesPressed[which-12*(octave+1)]=millis();
 }
 
 void keyUpTreino (const uint8_t which)
@@ -156,6 +165,21 @@ void keyUpTreino (const uint8_t which)
   Serial.print (F("Key up: "));
   Serial.println (which);
   Serial.println("Waiting Features...");
+  notesReleased[which-12*(octave+1)]=millis();
+}
+
+void trainingCheck() {
+    for (int i = 0; i < NUM_PIXELS; i++) {
+        int noteIndex = i + octave * 12;
+        if (notesPressed[noteIndex] == -1) {
+            pixels.setPixelColor(i, pixels.Color(255, 0, 0)); // Red for not pressed
+        } else if (abs(notesPressed[noteIndex] - notesStartTime[noteIndex]) < PRESS_TIME_TOLERANCE) {
+            pixels.setPixelColor(i, pixels.Color(0, 255, 0)); // Green for correctly pressed
+        } else {
+            pixels.setPixelColor(i, pixels.Color(255, 0, 0)); // Red for incorrectly pressed
+        }
+    }
+    pixels.show();
 }
 
 void octaveReading() {
@@ -298,7 +322,7 @@ void MIDIEventTreatment()
   player.sendMidiMessage(currentMIDIEvent.status, currentMIDIEvent.data1, currentMIDIEvent.data2);
   if((uint8_t)(currentMIDIEvent.status & (uint8_t)(0xF0)) == NOTE_ON_EVENT && currentMIDIEvent.data2 >= 5)
   {
-    notesStatus[currentMIDIEvent.data1-12] = millis();
+    notesStartTime[currentMIDIEvent.data1-12] = millis();
   }
 }
 
@@ -308,7 +332,7 @@ void updateLEDsFromMIDIFile()
   pixels.fill(0x00000000);
   for (int i=0;i<NUM_NOTES;i++)
   {
-    if(currentTime - notesStatus[i] <= LED_NOTE_ON_TIME)
+    if(currentTime - notesStartTime[i] <= LED_NOTE_ON_TIME)
     {
       if((i-(octave)*12)>24)
       {
@@ -388,6 +412,11 @@ void setup() {
   // turn off
   pixels.fill(0x000000);
   pixels.show();
+
+  for (int i = 0; i < NUM_NOTES; i++) 
+  {
+    notesPressed[i] = -1;
+  }
 }
 
 void loop()
@@ -420,6 +449,18 @@ void loop()
     break;
     case TREINO:
       checkStartStopButton();
+      if(fileOk && startStopState == START)
+      {
+        long unsigned int currentTime =  millis();
+        if(currentTime-timestampLastEventms > currentMIDIEvent.deltaTime){
+          timestampLastEventms = currentTime;
+          if(currentMIDIEvent.status <= 0xE0)
+            MIDIEventTreatment();
+          currentMIDIfileIndex = readEvent(MIDIfileData, currentMIDIfileIndex, MIDIfileLen, &MIDIfileTimeInformation, MIDIfileMIDIHeader, &currentMIDIEvent);
+          Serial.print("New Index: ");
+          Serial.println(currentMIDIfileIndex);
+      }}
+      trainingCheck();
     break;
   }
   kpd.scan();
