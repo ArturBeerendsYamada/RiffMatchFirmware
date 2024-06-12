@@ -12,7 +12,7 @@
 #define DEBOUNCE_TIME  50 // the debounce time in millisecond, increase this time if it still chatters
 #define START 1
 #define STOP 0
-#define NUMPIXELS   25
+#define NUM_PIXELS   25
 #define LEDPIN   13
 
 enum Mode {

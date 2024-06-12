@@ -123,12 +123,14 @@ MidiEvent currentMIDIEvent;
 // by Matthias Neeracher, Nathan Seidle's Sparkfun Electronics example respectively
 
 //Send a MIDI note-on message.  Like pressing a piano key
-void noteOn(uint8_t channel, uint8_t note, uint8_t attack_velocity) {
+void noteOn(uint8_t channel, uint8_t note, uint8_t attack_velocity)
+{
   player.sendMidiMessage( (0x90 | channel), note, attack_velocity);
 }
 
 //Send a MIDI note-off message.  Like releasing a piano key
-void noteOff(uint8_t channel, uint8_t note, uint8_t release_velocity) {
+void noteOff(uint8_t channel, uint8_t note, uint8_t release_velocity)
+{
   player.sendMidiMessage( (0x80 | channel), note, release_velocity);
 }
 
@@ -168,40 +170,64 @@ void keyUpTreino (const uint8_t which)
   notesReleased[which-12*(octave+1)]=millis();
 }
 
-void trainingCheck() {
-    for (int i = 0; i < NUM_PIXELS; i++) {
-        int noteIndex = i + octave * 12;
-        if (notesPressed[noteIndex] == -1) {
-            pixels.setPixelColor(i, pixels.Color(255, 0, 0)); // Red for not pressed
-        } else if (abs(notesPressed[noteIndex] - notesStartTime[noteIndex]) < PRESS_TIME_TOLERANCE) {
-            pixels.setPixelColor(i, pixels.Color(0, 255, 0)); // Green for correctly pressed
-        } else {
-            pixels.setPixelColor(i, pixels.Color(255, 0, 0)); // Red for incorrectly pressed
-        }
+void trainingCheck()
+{
+  unsigned long int currentTime = millis();
+  int noteIndex = 0;
+  for (int i = 0; i < NUM_PIXELS; i++)
+  {
+    noteIndex = i + octave * 12;
+    if (notesPressed[noteIndex] - currentTime > LED_NOTE_ON_TIME && 
+        notesStartTime[noteIndex] - currentTime > LED_NOTE_ON_TIME) //If both the pressed and expected are too old,  
+    {
+      pixels.setPixelColor(i, pixels.Color(0, 0, 0)); //Turn off the LED
     }
-    pixels.show();
+  }
+  for (int i = 0; i < NUM_PIXELS; i++)
+  {
+    noteIndex = i + octave * 12;
+    if (notesPressed[noteIndex] < notesStartTime[noteIndex]) //If pressed is older than expected
+    {
+      pixels.setPixelColor(i, pixels.Color(255, 140, 0)); //Orange for pressed too early
+    }
+    else if (abs(notesPressed[noteIndex] - notesStartTime[noteIndex]) < PRESS_TIME_TOLERANCE) //If pressed is about expected
+    {
+      pixels.setPixelColor(i, pixels.Color(0, 255, 0)); // Green for pressed within time
+    }
+    else if (notesPressed[noteIndex] - notesStartTime[noteIndex] > PRESS_TIME_TOLERANCE) //If expected is much older than pressed
+    {
+      pixels.setPixelColor(i, pixels.Color(255, 0, 0)); // Red for not pressed pressed within time
+    }
+  }
+  pixels.show();
 }
 
-void octaveReading() {
+void octaveReading()
+{
   static int last_reading = 0; // Para armazenar a última leitura válida
   unsigned long currentMillis = millis(); // Obtém o tempo atual em milissegundos
 
-  if (currentMillis - previousMillis >= interval) {
+  if (currentMillis - previousMillis >= interval)
+  {
     previousMillis = currentMillis; // Atualiza o tempo anterior
 
     int current_reading = analogRead(OCT_PIN); // Lê o valor analógico do pino
     // Se a diferença entre a leitura atual e a última leitura válida for menor que o threshold, consideramos a leitura estável
-    if (abs(current_reading - last_reading) > threshold) {
+    if (abs(current_reading - last_reading) > threshold)
+    {
       octave_read = current_reading;
       // Serial.println(octave_read);
-      if (octave_read < 10) {
+      if (octave_read < 10)
+      {
         if (octave == 6)
           octave = 6;
         else
           octave++; // Incrementa a variável octave
         Serial.print("Increment: ");
         Serial.println(octave); // Imprime o valor lido
-      } else if (octave_read < 3000) {
+      }
+      else if (octave_read < 3000)
+      {
         if (octave == 0)
           octave = 0;
         else 
@@ -225,7 +251,8 @@ void checkStartStopButton()
   // since the last press to ignore any noise:
 
   // If the switch/button changed, due to noise or pressing:
-  if (currentState != lastFlickerableState) {
+  if (currentState != lastFlickerableState)
+  {
     // reset the debouncing timer
     lastDebounceTime = millis();
     // save the the last flickerable state
@@ -244,7 +271,8 @@ void checkStartStopButton()
       {
         Serial.println("Stopped");
         startStopState = 0;
-      } else if (!startStopState) 
+      }
+      else if (!startStopState) 
       {
         Serial.println("Started");
         startStopState = 1;
@@ -319,7 +347,8 @@ void carregarArquivo()
 
 void MIDIEventTreatment()
 {
-  player.sendMidiMessage(currentMIDIEvent.status, currentMIDIEvent.data1, currentMIDIEvent.data2);
+  if(mode==APRENDIZADO) //only send MIDI message from file if it is Learning mode
+    player.sendMidiMessage(currentMIDIEvent.status, currentMIDIEvent.data1, currentMIDIEvent.data2);
   if((uint8_t)(currentMIDIEvent.status & (uint8_t)(0xF0)) == NOTE_ON_EVENT && currentMIDIEvent.data2 >= 5)
   {
     notesStartTime[currentMIDIEvent.data1-12] = millis();
@@ -354,19 +383,20 @@ void updateLEDsFromMIDIFile()
   pixels.show();
 }
 
-void setup() {
-    Serial.begin(115200);
-    SerialBT.begin(device_name); //Bluetooth device name
-    pinMode(SP_PIN, INPUT);
-    pixels.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)
-    pixels.setBrightness(10); // not so bright
-    // initialize SPI
-    SPI.begin();
-    Serial.println("Hello VS1053!\n");
-    player.beginMidi();  
-    player.setVolume(100);  
+void setup()
+{
+  Serial.begin(115200);
+  SerialBT.begin(device_name); //Bluetooth device name
+  pinMode(SP_PIN, INPUT);
+  pixels.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)
+  pixels.setBrightness(10); // not so bright
+  // initialize SPI
+  SPI.begin();
+  Serial.println("Hello VS1053!\n");
+  player.beginMidi();  
+  player.setVolume(100);  
 
-    /**  MIDI messages, 0x80 to 0xEF Channel Messages,  0xF0 to 0xFF System Messages
+  /**  MIDI messages, 0x80 to 0xEF Channel Messages,  0xF0 to 0xFF System Messages
  *   a MIDI message ranges from 1 byte to three bytes
  *   the first byte consists of 4 command bits and 4 channel bits, i.e. 16 channels
  *   
@@ -437,7 +467,8 @@ void loop()
       {
         updateLEDsFromMIDIFile();
         long unsigned int currentTime =  millis();
-        if(currentTime-timestampLastEventms > currentMIDIEvent.deltaTime){
+        if(currentTime-timestampLastEventms > currentMIDIEvent.deltaTime)
+        {
           timestampLastEventms = currentTime;
           if(currentMIDIEvent.status <= 0xE0)
             MIDIEventTreatment();
@@ -452,7 +483,8 @@ void loop()
       if(fileOk && startStopState == START)
       {
         long unsigned int currentTime =  millis();
-        if(currentTime-timestampLastEventms > currentMIDIEvent.deltaTime){
+        if(currentTime-timestampLastEventms > currentMIDIEvent.deltaTime)
+        {
           timestampLastEventms = currentTime;
           if(currentMIDIEvent.status <= 0xE0)
             MIDIEventTreatment();
