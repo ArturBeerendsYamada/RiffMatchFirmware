@@ -105,10 +105,11 @@ void updateTimeSig(int timeSigNum, int timeSigDen, struct timeInformation* timeI
 //Function to read a Variable Lenght Quantity (VLQ) from a byte stream and convert it to an integer
 uint32_t readVLQ(std::vector<uint8_t> stream, int* index);
 
-//function to read an event starting on given index of byte array "fileData". Size of the array should not be exceeded.
-//Assumes that the given index is pointing to the beginning of a VLQ delta time.
+//function to read an event starting on given index of byte array "fileData".
+//Assumes that the given index is pointing to the beginning of a delta time.
 //Returns the first index after the end of the event
-//Returns -1 if the file already ended
+//If the read event is type MIDI, stores it in the address given by parameter "event"
+//Returns the beginning of first track if the file already ended and fills in -1 in all fields of "event"
 int readEvent(std::vector<uint8_t> fileData, int index, int fileSize, struct timeInformation* timeInfo, MIDIHeader header, MidiEvent* event);
 
 //Function to work on Note Off Event

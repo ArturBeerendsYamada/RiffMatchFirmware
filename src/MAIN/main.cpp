@@ -73,9 +73,10 @@
 #endif
 
 #define LED_NOTE_ON_TIME 500 //in ms
-#define NUM_NOTES 96
+#define LED_ON_TIME_LIMIT 1000 //in ms
+#define NUM_NOTES 128
 
-#define PRESS_TIME_TOLERANCE 100
+#define PRESS_TIME_TOLERANCE 500 // in ms, should be less than LED_ON_TIME_LIMIT
 
 uint8_t channel = 0;
 uint8_t instrument = 2;
@@ -85,11 +86,11 @@ Keypad_Matrix kpd = Keypad_Matrix( makeKeymap (keys), rowPins, colPins, ROWS, CO
 Adafruit_NeoPixel pixels(NUM_PIXELS, LEDPIN, NEO_GRB + NEO_KHZ800); 
 
 // All notes vectors needed for all modes
-int notesStartTime[NUM_NOTES] = {};
-int notesOnFile[NUM_NOTES] = {};
-int notesOffFile[NUM_NOTES] = {};
-int notesPressed[NUM_NOTES] = {};
-int notesReleased[NUM_NOTES] = {};
+unsigned long int notesStartTime[NUM_NOTES] = {};
+unsigned long int notesOnFile[NUM_NOTES] = {};
+unsigned long int notesOffFile[NUM_NOTES] = {};
+unsigned long int notesPressed[NUM_NOTES] = {};
+unsigned long int notesReleased[NUM_NOTES] = {};
 
 int last_mode = LIVRE;
 int octave_read = 0;
@@ -139,8 +140,9 @@ void keyDownLivre (const uint8_t which)
   Serial.print (F("Key down: "));
   Serial.println (which);
   noteOn(channel, (which + 12 * octave), 45);
-  pixels.setPixelColor((uint16_t)(which - 12), pixels.Color(0, 150, 0));
+  pixels.setPixelColor((uint16_t)(which - 12), pixels.Color(150, 150, 150));
   pixels.show();
+  Serial.print (F("LED: "));
   Serial.println ((uint16_t)(which - 12));
 }
 
@@ -151,6 +153,7 @@ void keyUpLivre (const uint8_t which)
   noteOff(channel, (which + 12 * octave), 45);
   pixels.setPixelColor((uint16_t)(which - 12), pixels.Color(0, 0, 0));
   pixels.show();
+  Serial.print (F("LED: "));
   Serial.println ((uint16_t)(which - 12));
 }
 
@@ -158,45 +161,47 @@ void keyDownTreino (const uint8_t which)
 {
   Serial.print (F("Key down: "));
   Serial.println (which);
-  Serial.println("Waiting Features...");
-  notesPressed[which-12*(octave+1)]=millis();
+  noteOn(channel, (which + 12 * octave), 45);
+  notesPressed[which + 12 * octave]=millis();
 }
 
 void keyUpTreino (const uint8_t which)
 {
   Serial.print (F("Key up: "));
   Serial.println (which);
-  Serial.println("Waiting Features...");
-  notesReleased[which-12*(octave+1)]=millis();
+  noteOff(channel, (which + 12 * octave), 45);
+  notesReleased[which + 12 * octave]=millis();
 }
 
 void trainingCheck()
 {
   unsigned long int currentTime = millis();
-  int noteIndex = 0;
-  for (int i = 0; i < NUM_PIXELS; i++)
+  int ledIndex = 0;
+  pixels.fill(0x000000);
+  for (int i = 0; i < NUM_NOTES; i++)
   {
-    noteIndex = i + octave * 12;
-    if (notesPressed[noteIndex] - currentTime > LED_NOTE_ON_TIME && 
-        notesStartTime[noteIndex] - currentTime > LED_NOTE_ON_TIME) //If both the pressed and expected are too old,  
+    ledIndex = i - (octave+1) * 12; //nota 60 na oitava 4 tem que mapear para led 0
+    if((currentTime - notesStartTime[i] < LED_ON_TIME_LIMIT) || (currentTime - notesPressed[i] < LED_ON_TIME_LIMIT)) //If pressed or expected is recent
     {
-      pixels.setPixelColor(i, pixels.Color(0, 0, 0)); //Turn off the LED
-    }
-  }
-  for (int i = 0; i < NUM_PIXELS; i++)
-  {
-    noteIndex = i + octave * 12;
-    if (notesPressed[noteIndex] < notesStartTime[noteIndex]) //If pressed is older than expected
-    {
-      pixels.setPixelColor(i, pixels.Color(255, 140, 0)); //Orange for pressed too early
-    }
-    else if (abs(notesPressed[noteIndex] - notesStartTime[noteIndex]) < PRESS_TIME_TOLERANCE) //If pressed is about expected
-    {
-      pixels.setPixelColor(i, pixels.Color(0, 255, 0)); // Green for pressed within time
-    }
-    else if (notesPressed[noteIndex] - notesStartTime[noteIndex] > PRESS_TIME_TOLERANCE) //If expected is much older than pressed
-    {
-      pixels.setPixelColor(i, pixels.Color(255, 0, 0)); // Red for not pressed pressed within time
+      if ((notesPressed[i] > notesStartTime[i]) && (ledIndex >= 0 && ledIndex <= 24)) //If pressed is more recent than expected
+      {
+        if ((notesPressed[i] - notesStartTime[i] < PRESS_TIME_TOLERANCE) && (ledIndex >= 0 && ledIndex <= 24)) //If pressed is near expected
+        {
+          pixels.setPixelColor(ledIndex, pixels.Color(0, 255, 0)); // Green for pressed expected within time
+        }
+        else
+        {
+          pixels.setPixelColor(ledIndex, pixels.Color(255, 100, 0)); // Orange for unexpected press
+        }
+      }
+      else if ((currentTime - notesStartTime[i] <= PRESS_TIME_TOLERANCE) && (ledIndex >= 0 && ledIndex <= 24)) //If expected but still within tolerance
+      {
+        pixels.setPixelColor(ledIndex, pixels.Color(0, 0, 255)); // Blue for should press
+      }
+      else if ((currentTime - notesStartTime[i] > PRESS_TIME_TOLERANCE) && (ledIndex >= 0 && ledIndex <= 24)) //If tolerance time from expected elapsed
+      {
+        pixels.setPixelColor(ledIndex, pixels.Color(255, 0, 0)); // Red for unpressed expectation
+      }
     }
   }
   pixels.show();
@@ -241,6 +246,7 @@ void octaveReading()
   }
 }
 
+//Adapted from https://esp32io.com/tutorials/esp32-button-debounce
 void checkStartStopButton()
 {
   // read the state of the switch/button:
@@ -270,12 +276,12 @@ void checkStartStopButton()
       if(startStopState)
       {
         Serial.println("Stopped");
-        startStopState = 0;
+        startStopState = STOP;
       }
       else if (!startStopState) 
       {
         Serial.println("Started");
-        startStopState = 1;
+        startStopState = START;
       }
     }
     // save the the last steady state
@@ -304,6 +310,9 @@ void modeFunction()
   // Serial.println(mode);
   if (last_mode != mode)
   {
+    currentMIDIfileIndex = MIDIfileMIDIHeader.firstTrackIndex + MIDI_HEADER_LEN;
+    pixels.fill(0x000000);
+    pixels.show();
     if (mode == TREINO)
     {
       Serial.println("Modo Treino");
@@ -325,6 +334,7 @@ void modeFunction()
 
 void carregarArquivo()
 {
+  MIDIfileData.clear();
   pixels.fill(0x0000FF);
   pixels.show();
   while (SerialBT.available())
@@ -347,28 +357,33 @@ void carregarArquivo()
 
 void MIDIEventTreatment()
 {
-  if(mode==APRENDIZADO) //only send MIDI message from file if it is Learning mode
-    player.sendMidiMessage(currentMIDIEvent.status, currentMIDIEvent.data1, currentMIDIEvent.data2);
-  if((uint8_t)(currentMIDIEvent.status & (uint8_t)(0xF0)) == NOTE_ON_EVENT && currentMIDIEvent.data2 >= 5)
+    if(currentMIDIEvent.status <= 0xE0) //if it is a MIDI Event with 3 bytes
   {
-    notesStartTime[currentMIDIEvent.data1-12] = millis();
+    if(mode==APRENDIZADO) //only send MIDI message from file if it is Learning mode
+      player.sendMidiMessage(currentMIDIEvent.status, currentMIDIEvent.data1, currentMIDIEvent.data2);
+    if((uint8_t)(currentMIDIEvent.status & (uint8_t)(0xF0)) == NOTE_ON_EVENT && currentMIDIEvent.data2 >= 5)
+    {
+      notesStartTime[currentMIDIEvent.data1] = millis();
+    }
   }
 }
 
 void updateLEDsFromMIDIFile()
 {
   int currentTime = millis();
+  int ledIndex = 0;
   pixels.fill(0x00000000);
   for (int i=0;i<NUM_NOTES;i++)
   {
+    ledIndex = i - (octave+1) * 12; //nota 60 na oitava 4 tem que mapear para led 0
     if(currentTime - notesStartTime[i] <= LED_NOTE_ON_TIME)
     {
-      if((i-(octave)*12)>24)
+      if(ledIndex>24)
       {
         //acende canto direito por estar em oitava muita pra baixo
         pixels.setPixelColor((uint16_t)(24), pixels.Color(255, 255, 0));
       }
-      else if ((i-(octave)*12)<0)
+      else if (ledIndex<0)
       {
         //acende canto esquerdo por estar em oitava muito pra cima
         pixels.setPixelColor((uint16_t)(0), pixels.Color(255, 255, 0));
@@ -376,7 +391,7 @@ void updateLEDsFromMIDIFile()
       else
       {
         //acende
-        pixels.setPixelColor((uint16_t)(i-(octave)*12), pixels.Color(255, 0, 255));
+        pixels.setPixelColor((uint16_t)(ledIndex), pixels.Color(255, 0, 255));
       }
     }
   }
@@ -442,11 +457,6 @@ void setup()
   // turn off
   pixels.fill(0x000000);
   pixels.show();
-
-  for (int i = 0; i < NUM_NOTES; i++) 
-  {
-    notesPressed[i] = -1;
-  }
 }
 
 void loop()
@@ -470,9 +480,17 @@ void loop()
         if(currentTime-timestampLastEventms > currentMIDIEvent.deltaTime)
         {
           timestampLastEventms = currentTime;
-          if(currentMIDIEvent.status <= 0xE0)
-            MIDIEventTreatment();
+          MIDIEventTreatment();
           currentMIDIfileIndex = readEvent(MIDIfileData, currentMIDIfileIndex, MIDIfileLen, &MIDIfileTimeInformation, MIDIfileMIDIHeader, &currentMIDIEvent);
+          if(currentMIDIEvent.deltaTime == -1) //if this happens, means readEvent reached the end of the file
+          {
+            //reads the first event to have valid values again
+            currentMIDIfileIndex = readEvent(MIDIfileData, currentMIDIfileIndex, MIDIfileLen, &MIDIfileTimeInformation, MIDIfileMIDIHeader, &currentMIDIEvent);
+            if(mode==TREINO) //On mode "Treino" the end of the song does not loop
+            {
+              startStopState = STOP;
+            }
+          }
           Serial.print("New Index: ");
           Serial.println(currentMIDIfileIndex);
         }
@@ -480,15 +498,27 @@ void loop()
     break;
     case TREINO:
       checkStartStopButton();
+      if (SerialBT.available())
+      {
+        carregarArquivo();
+      }
       if(fileOk && startStopState == START)
       {
         long unsigned int currentTime =  millis();
         if(currentTime-timestampLastEventms > currentMIDIEvent.deltaTime)
         {
           timestampLastEventms = currentTime;
-          if(currentMIDIEvent.status <= 0xE0)
-            MIDIEventTreatment();
+          MIDIEventTreatment();
           currentMIDIfileIndex = readEvent(MIDIfileData, currentMIDIfileIndex, MIDIfileLen, &MIDIfileTimeInformation, MIDIfileMIDIHeader, &currentMIDIEvent);
+          if(currentMIDIEvent.deltaTime == -1) //if this happens, means readEvent reached the end of the file
+          {
+            //reads the first event to have valid values again
+            currentMIDIfileIndex = readEvent(MIDIfileData, currentMIDIfileIndex, MIDIfileLen, &MIDIfileTimeInformation, MIDIfileMIDIHeader, &currentMIDIEvent);
+            if(mode==TREINO) //On mode "Treino" the end of the song does not loop
+            {
+              startStopState = STOP;
+            }
+          }
           Serial.print("New Index: ");
           Serial.println(currentMIDIfileIndex);
       }}

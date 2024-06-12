@@ -65,6 +65,7 @@ struct MIDIHeader getMIDIHeader(std::vector<uint8_t> fileData, int fileSize, str
     timeInfo->bpm = calculateBPM(DEFAULT_TEMPO, DEFAULT_TIMESIG_DEN);
     timeInfo->usPerTick = calculateUsPerTick(DEFAULT_TEMPO, header.tickdiv);
     timeInfo->msPerTick = (timeInfo->usPerTick) / 1000;
+    timeInfo->tickdiv = header.tickdiv;
     #if DEBUG
         printf("----------File Header----------\nheader lenght: %d\nMIDI format: %d\nnumber of tracks: %d\ntickdiv: %d\nTrackIndex: %d\n--------------------\n",
         header.lenght, header.format, header.ntrack, header.tickdiv, header.firstTrackIndex);
@@ -153,16 +154,21 @@ uint32_t readVLQ(std::vector<uint8_t> stream, int* index) {
     return value;
 }
 
-//function to read an event starting on given index of byte array "fileData". Size of the array should not be exceeded.
-//Assumes that the given index is pointing to the beginning if a delta time.
+//function to read an event starting on given index of byte array "fileData".
+//Assumes that the given index is pointing to the beginning of a delta time.
 //Returns the first index after the end of the event
-//Returns the beginning of first track if the file already ended
+//If the read event is type MIDI, stores it in the address given by parameter "event"
+//Returns the beginning of first track if the file already ended and fills in -1 in all fields of "event"
 int readEvent(std::vector<uint8_t> fileData, int index, int fileSize, struct timeInformation* timeInfo, MIDIHeader header, MidiEvent* event) {
     if(index >= fileSize)
     {
         #if DEBUG
             printf("File already ended. Looping back to beginning of First Track\n");
         #endif
+        event->deltaTime = -1;
+        event->status = -1;
+        event->data1 =  -1;;
+        event->data2 =  -1;;
         return header.firstTrackIndex+MIDI_HEADER_LEN;
     }
     int deltaTime = readVLQ(fileData, &index);
@@ -207,7 +213,7 @@ int readEvent(std::vector<uint8_t> fileData, int index, int fileSize, struct tim
             case CONTROLLER_EVENT:
             case PITCH_BEND_EVENT:
                 #if DEBUG
-                    printf("MIDI Event unsuported\n");
+                    printf("MIDI Event 3 bytes\n");
                 #endif
                 event->status = fileData[index];
                 event->data1 = fileData[index+1];
@@ -219,7 +225,7 @@ int readEvent(std::vector<uint8_t> fileData, int index, int fileSize, struct tim
             case PROGRAM_CHANGE_EVENT:
             case CHANNEL_PRESSURE_EVENT:
                 #if DEBUG
-                    printf("MIDI Event unsuported\n");
+                    printf("MIDI Event 2 bytes\n");
                 #endif
                 event->status = fileData[index];
                 event->data1 = fileData[index+1];
@@ -278,7 +284,7 @@ void metaEvent(std::vector<uint8_t> fileData, int* index, int fileSize, struct t
             //adds the next 3 bytes (big-endian) to get the MIDITempo (us per quarter note)
             tempo += fileData[(*index)++] << 8*2;
             tempo += fileData[(*index)++] << 8;
-            tempo += fileData[(*index)++] << 8;
+            tempo += fileData[(*index)++] << 0;
             updateTempo(tempo, timeInfo);
         break;}
 
