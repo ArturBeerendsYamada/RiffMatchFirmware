@@ -8,10 +8,11 @@
 #include <math.h>
 #include <vector>
 
-#define DEBUG 1
+#define DEBUG 0
 
 #define DEFAULT_TEMPO 500000
-#define DEFAULT_TIMESIG_DEN 1
+#define DEFAULT_TIMESIG_NUM 4
+#define DEFAULT_TIMESIG_DEN 2
 #define MIDI_HEADER_LEN 8
 
 //all events here are considered to be going to channel 0, pay attention during implementation

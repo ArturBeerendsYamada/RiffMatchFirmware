@@ -53,15 +53,16 @@ struct MIDIHeader getMIDIHeader(std::vector<uint8_t> fileData, int fileSize, str
         header.firstTrackIndex = ++i;
     }
     else {
-        header.lenght = -1;
-        header.format = -1;
-        header.ntrack = -1;
-        header.tickdiv = -1;
-        header.firstTrackIndex = -1;
+        header.lenght = -2;
+        header.format = -2;
+        header.ntrack = -2;
+        header.tickdiv = -2;
+        header.firstTrackIndex = -2;
     }
 
     timeInfo->tempoMIDI = DEFAULT_TEMPO;
     timeInfo->timeSigDen = DEFAULT_TIMESIG_DEN;
+    timeInfo->timeSigNum = DEFAULT_TIMESIG_NUM;
     timeInfo->bpm = calculateBPM(DEFAULT_TEMPO, DEFAULT_TIMESIG_DEN);
     timeInfo->usPerTick = calculateUsPerTick(DEFAULT_TEMPO, header.tickdiv);
     timeInfo->msPerTick = (timeInfo->usPerTick) / 1000;
@@ -249,6 +250,7 @@ int readEvent(std::vector<uint8_t> fileData, int index, int fileSize, struct tim
                 #if DEBUG
                     printf("MIDI event unknown (%X)\n", fileData[index] & 0xF0);
                 #endif
+            break;
         }
     }
     

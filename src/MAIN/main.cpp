@@ -491,8 +491,8 @@ void loop()
               startStopState = STOP;
             }
           }
-          Serial.print("New Index: ");
-          Serial.println(currentMIDIfileIndex);
+          // Serial.print("New Index: ");
+          // Serial.println(currentMIDIfileIndex);
         }
       }
     break;
@@ -519,8 +519,8 @@ void loop()
               startStopState = STOP;
             }
           }
-          Serial.print("New Index: ");
-          Serial.println(currentMIDIfileIndex);
+          // Serial.print("New Index: ");
+          // Serial.println(currentMIDIfileIndex);
       }}
       trainingCheck();
     break;
