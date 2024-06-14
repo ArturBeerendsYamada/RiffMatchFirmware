@@ -55,6 +55,8 @@
 #include "BluetoothSerial.h"
 #include <RiffMatchMIDILibrary.h>
 #include <Adafruit_NeoPixel.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
 #include <vector>
 
 #define UNDEFINED    -1
@@ -72,6 +74,19 @@
 #define VS1053_DREQ   14
 #endif
 
+#define LCD_DIM_X 16
+#define LCD_DIM Y 2
+#define LCD_NOTE0 0
+#define LCD_NOTE1 4
+#define LCD_NOTE2 8
+#define LCD_NOTE3 12
+#define LCD_MODE 0
+#define LCD_LOWER_OCT 7
+#define LCD_FIRTS_OCT 8
+#define LCD_SECND_OCT 9
+#define LCD_UPPER_OCT 10
+#define LCD_STOPPLAY 12
+
 #define LED_NOTE_ON_TIME 500 //in ms
 #define LED_ON_TIME_LIMIT 1000 //in ms
 #define NUM_NOTES 128
@@ -84,6 +99,7 @@ uint8_t instrument = 2;
 VS1053 player(VS1053_CS, VS1053_DCS, VS1053_DREQ, UNDEFINED, SPI);
 Keypad_Matrix kpd = Keypad_Matrix( makeKeymap (keys), rowPins, colPins, ROWS, COLS );
 Adafruit_NeoPixel pixels(NUM_PIXELS, LEDPIN, NEO_GRB + NEO_KHZ800); 
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 // All notes vectors needed for all modes
 unsigned long int notesStartTime[NUM_NOTES] = {};
@@ -108,6 +124,7 @@ int startStopState = STOP;
 // the following variables are unsigned longs because the time, measured in
 // milliseconds, will quickly become a bigger number than can be stored in an int.
 unsigned long lastDebounceTime = 0;  // the last time the output pin was toggled
+char lcdLine1[17] = "                "; // 16 blanks + \0
 
 String device_name = "ESP32-BT-Riffmatch";
 BluetoothSerial SerialBT;
@@ -119,6 +136,8 @@ struct timeInformation MIDIfileTimeInformation;
 int fileOk = 0;
 long unsigned int timestampLastEventms = 0;
 MidiEvent currentMIDIEvent;
+
+void newNoteLCD(uint8_t note);
 
 // noteOn and noteOff based on MP3_Shield_RealtimeMIDI demo 
 // by Matthias Neeracher, Nathan Seidle's Sparkfun Electronics example respectively
@@ -138,6 +157,7 @@ void noteOff(uint8_t channel, uint8_t note, uint8_t release_velocity)
 void keyDownLivre (const uint8_t which)
 {
   Serial.print (F("Key down: "));
+  newNoteLCD((which + 12 * octave));
   Serial.println (which);
   noteOn(channel, (which + 12 * octave), 45);
   pixels.setPixelColor((uint16_t)(which - 12), pixels.Color(150, 150, 150));
@@ -160,6 +180,7 @@ void keyUpLivre (const uint8_t which)
 void keyDownTreino (const uint8_t which)
 {
   Serial.print (F("Key down: "));
+  newNoteLCD((which + 12 * octave));
   Serial.println (which);
   noteOn(channel, (which + 12 * octave), 45);
   notesPressed[which + 12 * octave]=millis();
@@ -240,6 +261,15 @@ void octaveReading()
         Serial.print("Decrement: ");
         Serial.println(octave); // Imprime o valor lido
       }
+      
+      lcd.setCursor(LCD_LOWER_OCT, 1);
+      lcd.print(' ');
+      lcd.setCursor(LCD_FIRTS_OCT, 1);
+      lcd.print(octave);
+      lcd.setCursor(LCD_SECND_OCT, 1);
+      lcd.print(octave+1);
+      lcd.setCursor(LCD_UPPER_OCT, 1);
+      lcd.print(' ');
 
       last_reading = octave_read; // Atualiza a última leitura válida
     }
@@ -276,11 +306,15 @@ void checkStartStopButton()
       if(startStopState)
       {
         Serial.println("Stopped");
+        lcd.setCursor(LCD_STOPPLAY, 1);
+        lcd.print("Stop");
         startStopState = STOP;
       }
       else if (!startStopState) 
       {
         Serial.println("Started");
+        lcd.setCursor(LCD_STOPPLAY, 1);
+        lcd.print("Play");
         startStopState = START;
       }
     }
@@ -312,19 +346,37 @@ void modeFunction()
   {
     currentMIDIfileIndex = MIDIfileMIDIHeader.firstTrackIndex + MIDI_HEADER_LEN;
     pixels.fill(0x000000);
+    for(int i=0; i<16; i++)
+      lcdLine1[i] = ' ';
+    lcd.setCursor(0, 0);
+    lcd.print(lcdLine1);
+    lcd.setCursor(LCD_LOWER_OCT, 1);
+    lcd.print(' ');
+    lcd.setCursor(LCD_UPPER_OCT, 1);
+    lcd.print(' ');
     pixels.show();
     if (mode == TREINO)
     {
       Serial.println("Modo Treino");
       kpd.setKeyDownHandler(keyDownTreino);
       kpd.setKeyUpHandler(keyUpTreino);
+      lcd.setCursor(LCD_MODE, 1);
+      lcd.print('T');
     }
     else
     {
       if (mode == LIVRE)
+      {
         Serial.println("Modo Livre");
+        lcd.setCursor(LCD_MODE, 1);
+        lcd.print('L');
+      }
       else
+      {
         Serial.println("Modo Aprendizado");
+        lcd.setCursor(LCD_MODE, 1);
+        lcd.print('A');
+      }
       kpd.setKeyDownHandler(keyDownLivre);
       kpd.setKeyUpHandler(keyUpLivre);
     }
@@ -337,6 +389,7 @@ void carregarArquivo()
   MIDIfileData.clear();
   pixels.fill(0x0000FF);
   pixels.show();
+  delay(200); //give time to make sure the file is fully sent
   while (SerialBT.available())
   {
     MIDIfileData.push_back(SerialBT.read());
@@ -357,13 +410,17 @@ void carregarArquivo()
 
 void MIDIEventTreatment()
 {
-    if(currentMIDIEvent.status <= 0xE0) //if it is a MIDI Event with 3 bytes
+  if(currentMIDIEvent.status <= 0xE0) //if it is a MIDI Event with 3 bytes
   {
-    if(mode==APRENDIZADO) //only send MIDI message from file if it is Learning mode
+    if(mode==APRENDIZADO || (currentMIDIEvent.data1 < (octave+1) * 12 || currentMIDIEvent.data1 > (octave+3) * 12)) //only send MIDI message from file if it is Learning mode or outside of current octaves
+    {
       player.sendMidiMessage(currentMIDIEvent.status, currentMIDIEvent.data1, currentMIDIEvent.data2);
+    }
     if((uint8_t)(currentMIDIEvent.status & (uint8_t)(0xF0)) == NOTE_ON_EVENT && currentMIDIEvent.data2 >= 5)
     {
       notesStartTime[currentMIDIEvent.data1] = millis();
+      if(mode == APRENDIZADO)
+        newNoteLCD(currentMIDIEvent.data1);
     }
   }
 }
@@ -382,11 +439,15 @@ void updateLEDsFromMIDIFile()
       {
         //acende canto direito por estar em oitava muita pra baixo
         pixels.setPixelColor((uint16_t)(24), pixels.Color(255, 255, 0));
+        lcd.setCursor(LCD_UPPER_OCT, 1);
+        lcd.print('>');
       }
       else if (ledIndex<0)
       {
         //acende canto esquerdo por estar em oitava muito pra cima
         pixels.setPixelColor((uint16_t)(0), pixels.Color(255, 255, 0));
+        lcd.setCursor(LCD_LOWER_OCT, 1);
+        lcd.print('<');
       }
       else
       {
@@ -396,6 +457,102 @@ void updateLEDsFromMIDIFile()
     }
   }
   pixels.show();
+}
+
+void newNoteLCD(uint8_t midiNote)
+{
+  char text[3];
+  int octave, note;
+  octave = midiNote/12 - 1;
+  note = midiNote%12;
+  switch (note)
+  {
+    case 0:
+      text[0] = 'C';
+      text[1] = '0'+octave; //ascii '0' + deslocamento para pegar o ascii do número
+      text[2] = ' ';
+      break;
+    
+    case 1:
+      text[0] = 'C';
+      text[1] = '#';
+      text[2] = '0'+octave; //ascii '0' + deslocamento para pegar o ascii do número
+      break;
+    
+    case 2:
+      text[0] = 'D';
+      text[1] = '0'+octave; //ascii '0' + deslocamento para pegar o ascii do número
+      text[2] = ' ';
+      break;
+    
+    case 3:
+      text[0] = 'D';
+      text[1] = '#';
+      text[2] = '0'+octave; //ascii '0' + deslocamento para pegar o ascii do número
+      break;
+    
+    case 4:
+      text[0] = 'E';
+      text[1] = '0'+octave; //ascii '0' + deslocamento para pegar o ascii do número
+      text[2] = ' ';
+      break;
+    
+    case 5:
+      text[0] = 'F';
+      text[1] = '0'+octave; //ascii '0' + deslocamento para pegar o ascii do número
+      text[2] = ' ';
+      break;
+    
+    case 6:
+      text[0] = 'F';
+      text[1] = '#';
+      text[2] = '0'+octave; //ascii '0' + deslocamento para pegar o ascii do número
+      break;
+    
+    case 7:
+      text[0] = 'G';
+      text[1] = '0'+octave; //ascii '0' + deslocamento para pegar o ascii do número
+      text[2] = ' ';
+      break;
+    
+    case 8:
+      text[0] = 'G';
+      text[1] = '#';
+      text[2] = '0'+octave; //ascii '0' + deslocamento para pegar o ascii do número
+      break;
+    
+    case 9:
+      text[0] = 'A';
+      text[1] = '0'+octave; //ascii '0' + deslocamento para pegar o ascii do número
+      text[2] = ' ';
+      break;
+    
+    case 10:
+      text[0] = 'A';
+      text[1] = '#';
+      text[2] = '0'+octave; //ascii '0' + deslocamento para pegar o ascii do número
+      break;
+    
+    case 11:
+      text[0] = 'B';
+      text[1] = '0'+octave; //ascii '0' + deslocamento para pegar o ascii do número
+      text[2] = ' ';
+      break;
+  
+    default:
+      break;
+  }
+  
+  for(int i=15; i > 3; i--) // desloca todas as outras notas 4 casa pro lado
+  {
+    lcdLine1[i] = lcdLine1[i-4];
+  }
+  lcdLine1[0] = text[0];
+  lcdLine1[1] = text[1];
+  lcdLine1[2] = text[2];
+
+  lcd.setCursor(0, 0);
+  lcd.print(lcdLine1);
 }
 
 void setup()
@@ -451,6 +608,13 @@ void setup()
   kpd.begin();
   kpd.setKeyDownHandler(keyDownLivre);
   kpd.setKeyUpHandler(keyUpLivre);
+
+  lcd.begin();
+  lcd.backlight();
+  lcd.print("NT0 NT1 NT2 NT3 ");
+  lcd.setCursor(0, 1);
+  lcd.print("L OCT:  45  Stop");
+
   pixels.fill(0x00FF00);
   pixels.show();
   delay(500);
