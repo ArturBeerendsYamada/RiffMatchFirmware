@@ -93,6 +93,9 @@
 
 #define PRESS_TIME_TOLERANCE 500 // in ms, should be less than LED_ON_TIME_LIMIT
 
+#define LCD_REFRESH_RATE 100 // in ms
+#define ACORDES_TRESHOLD 50
+
 uint8_t channel = 0;
 uint8_t instrument = 2;
 
@@ -124,6 +127,7 @@ int startStopState = STOP;
 // the following variables are unsigned longs because the time, measured in
 // milliseconds, will quickly become a bigger number than can be stored in an int.
 unsigned long lastDebounceTime = 0;  // the last time the output pin was toggled
+unsigned long lastLCDRefreshed = 0;
 char lcdLine1[17] = "                "; // 16 blanks + \0
 
 String device_name = "ESP32-BT-Riffmatch";
@@ -157,13 +161,14 @@ void noteOff(uint8_t channel, uint8_t note, uint8_t release_velocity)
 void keyDownLivre (const uint8_t which)
 {
   Serial.print (F("Key down: "));
-  newNoteLCD((which + 12 * octave));
+  // newNoteLCD((which + 12 * octave));
   Serial.println (which);
   noteOn(channel, (which + 12 * octave), 45);
   pixels.setPixelColor((uint16_t)(which - 12), pixels.Color(150, 150, 150));
   pixels.show();
   Serial.print (F("LED: "));
   Serial.println ((uint16_t)(which - 12));
+  notesPressed[which + 12 * octave]=millis();
 }
 
 void keyUpLivre (const uint8_t which)
@@ -180,7 +185,7 @@ void keyUpLivre (const uint8_t which)
 void keyDownTreino (const uint8_t which)
 {
   Serial.print (F("Key down: "));
-  newNoteLCD((which + 12 * octave));
+  // newNoteLCD((which + 12 * octave));
   Serial.println (which);
   noteOn(channel, (which + 12 * octave), 45);
   notesPressed[which + 12 * octave]=millis();
@@ -419,8 +424,8 @@ void MIDIEventTreatment()
     if((uint8_t)(currentMIDIEvent.status & (uint8_t)(0xF0)) == NOTE_ON_EVENT && currentMIDIEvent.data2 >= 5)
     {
       notesStartTime[currentMIDIEvent.data1] = millis();
-      if(mode == APRENDIZADO)
-        newNoteLCD(currentMIDIEvent.data1);
+      // if(mode == APRENDIZADO)
+        // newNoteLCD(currentMIDIEvent.data1);
     }
   }
 }
@@ -555,6 +560,203 @@ void newNoteLCD(uint8_t midiNote)
   lcd.print(lcdLine1);
 }
 
+void newNotesLCD(int* notesTodisplay)
+{
+  char text[17] = "                ";
+  int octaves[4] = {}, notes[4] = {};
+  for (int i=0;i<4;i++)
+  {
+    if(notesTodisplay[i] >= 0)
+    {
+      octaves[i] = notesTodisplay[i]/12-1;
+      notes[i] = notesTodisplay[i]%12;
+    }
+  }
+  
+  for (int i=0;i<4;i++)
+  {
+    text[i*4+3] = ' ';
+    if(notesTodisplay[i] < 0)
+    {
+      break;
+    }
+    switch (notes[i])
+    {
+      case 0:
+        text[i*4+0] = 'C';
+        text[i*4+1] = '0'+octaves[i]; //ascii '0' + deslocamento para pegar o ascii do número
+        text[i*4+2] = ' ';
+        break;
+      
+      case 1:
+        text[i*4+0] = 'C';
+        text[i*4+1] = '#';
+        text[i*4+2] = '0'+octaves[i]; //ascii '0' + deslocamento para pegar o ascii do número
+        break;
+      
+      case 2:
+        text[i*4+0] = 'D';
+        text[i*4+1] = '0'+octaves[i]; //ascii '0' + deslocamento para pegar o ascii do número
+        text[i*4+2] = ' ';
+        break;
+      
+      case 3:
+        text[i*4+0] = 'D';
+        text[i*4+1] = '#';
+        text[i*4+2] = '0'+octaves[i]; //ascii '0' + deslocamento para pegar o ascii do número
+        break;
+      
+      case 4:
+        text[i*4+0] = 'E';
+        text[i*4+1] = '0'+octaves[i]; //ascii '0' + deslocamento para pegar o ascii do número
+        text[i*4+2] = ' ';
+        break;
+      
+      case 5:
+        text[i*4+0] = 'F';
+        text[i*4+1] = '0'+octaves[i]; //ascii '0' + deslocamento para pegar o ascii do número
+        text[i*4+2] = ' ';
+        break;
+      
+      case 6:
+        text[i*4+0] = 'F';
+        text[i*4+1] = '#';
+        text[i*4+2] = '0'+octaves[i]; //ascii '0' + deslocamento para pegar o ascii do número
+        break;
+      
+      case 7:
+        text[i*4+0] = 'G';
+        text[i*4+1] = '0'+octaves[i]; //ascii '0' + deslocamento para pegar o ascii do número
+        text[i*4+2] = ' ';
+        break;
+      
+      case 8:
+        text[i*4+0] = 'G';
+        text[i*4+1] = '#';
+        text[i*4+2] = '0'+octaves[i]; //ascii '0' + deslocamento para pegar o ascii do número
+        break;
+      
+      case 9:
+        text[i*4+0] = 'A';
+        text[i*4+1] = '0'+octaves[i]; //ascii '0' + deslocamento para pegar o ascii do número
+        text[i*4+2] = ' ';
+        break;
+      
+      case 10:
+        text[i*4+0] = 'A';
+        text[i*4+1] = '#';
+        text[i*4+2] = '0'+octaves[i]; //ascii '0' + deslocamento para pegar o ascii do número
+        break;
+      
+      case 11:
+        text[i*4+0] = 'B';
+        text[i*4+1] = '0'+octaves[i]; //ascii '0' + deslocamento para pegar o ascii do número
+        text[i*4+2] = ' ';
+        break;
+    
+      default:
+        break;
+    }
+  }
+  
+  lcd.setCursor(0, 0);
+  lcd.print(text);
+}
+
+void refreshLCD()
+{
+  unsigned long int currentTime = millis(), mostRecentTime = 0;
+  int notesToDisplay[4] = {-1, -1, -1, -1}, notesFound = 0, mostRecentNote = -1;
+  if (mode==APRENDIZADO)
+  {
+    for (int i = 0; i < NUM_NOTES; i++)
+    {
+      if((notesStartTime[i] > mostRecentTime) && (currentTime - notesStartTime[i] < LED_ON_TIME_LIMIT))
+      {
+        mostRecentTime = notesStartTime[i];
+        mostRecentNote = i;
+      }
+    }
+  }
+  else
+  {
+    for (int i = 0; i < NUM_NOTES; i++)
+    {
+      if((notesPressed[i] > mostRecentTime) && (currentTime - notesPressed[i] < LED_ON_TIME_LIMIT))
+      {
+        mostRecentTime = notesPressed[i];
+        mostRecentNote = i;
+      }
+    }
+  }
+  notesToDisplay[0] = mostRecentNote;
+  notesFound++;
+  for(int i=1;i<NUM_NOTES;i++)
+  {
+    if(mode==APRENDIZADO)
+    {
+      if(mostRecentNote-i > 0)
+      {
+        if(mostRecentTime - notesStartTime[mostRecentNote-i] < ACORDES_TRESHOLD)
+        {
+          notesToDisplay[3] = notesToDisplay[2];
+          notesToDisplay[2] = notesToDisplay[1];
+          notesToDisplay[1] = notesToDisplay[0];
+          notesToDisplay[0] = mostRecentNote - i;
+          notesFound++;
+          if(notesFound >= 4)
+          {
+            break;
+          }
+        }
+      }
+      if (mostRecentNote+i < NUM_NOTES)
+      {
+        if(mostRecentTime - notesStartTime[mostRecentNote+i] < ACORDES_TRESHOLD)
+        {
+          notesToDisplay[notesFound] = mostRecentNote+i;
+          notesFound++;
+          if(notesFound >= 4)
+          {
+            break;
+          }
+        }
+      }
+    }
+    else
+    {
+      if(mostRecentNote+i > 0)
+      {
+        if(mostRecentTime - notesPressed[mostRecentNote-i] < ACORDES_TRESHOLD)
+        {
+          notesToDisplay[3] = notesToDisplay[2];
+          notesToDisplay[2] = notesToDisplay[1];
+          notesToDisplay[1] = notesToDisplay[0];
+          notesToDisplay[0] = mostRecentNote - i;
+          notesFound++;
+          if(notesFound >= 4)
+          {
+            break;
+          }
+        }
+      }
+      if (mostRecentNote+i > NUM_NOTES)
+      {
+        if(mostRecentTime - notesPressed[mostRecentNote+i] < ACORDES_TRESHOLD)
+        {
+          notesToDisplay[notesFound] = mostRecentNote+i;
+          notesFound++;
+          if(notesFound >= 4)
+          {
+            break;
+          }
+        }
+      }
+    }
+  }
+  newNotesLCD(notesToDisplay);
+}
+
 void setup()
 {
   Serial.begin(115200);
@@ -625,6 +827,17 @@ void setup()
 
 void loop()
 {
+  long unsigned int currentTime =  millis();
+
+  if (currentTime - lastLCDRefreshed > LCD_REFRESH_RATE)
+  {
+    if(mode != APRENDIZADO || startStopState == START)
+    {
+      lastLCDRefreshed = currentTime;
+      refreshLCD();
+    }
+  }
+
   modeFunction();
   switch(mode)
   {
@@ -640,7 +853,6 @@ void loop()
       if(fileOk && startStopState == START)
       {
         updateLEDsFromMIDIFile();
-        long unsigned int currentTime =  millis();
         if(currentTime-timestampLastEventms > currentMIDIEvent.deltaTime)
         {
           timestampLastEventms = currentTime;
